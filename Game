@@ -1,0 +1,399 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Media;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace Game
+{
+    public partial class Game : Form
+    {
+        public const int width = 17, height = 27, k = 20;       //Size of the gamefield, size of cubes
+        public int shapeType;
+        public int score = 0;
+        public int coef;                        //Difficulty coefficient
+        public string difficulty;               //Selected difficulty
+        public string[] scoreList =  new string[15];
+        public int[,] shape = new int[2, 4];                //Detail
+        public int[,] border = new int[width, height];          //Border size
+        public int[,] field = new int[width, height];           //Gamefield size
+        public int[] recordList = new int[15];
+        public bool gameStarted = false;
+        public SoundPlayer music = new SoundPlayer(Properties.Resources.tetris);        //Soundtrack
+        public Bitmap bitfield = new Bitmap(k * width, k * height);                     //Draws the gamefield
+        public Graphics g;
+
+        public Game()
+        {
+            InitializeComponent();
+            g = Graphics.FromImage(bitfield);
+            setMenu();
+            playMusic();
+            pictureBox1.Size = bitfield.Size;                   //Where gamefield is drawn
+            pictureBox1.Location = new Point(10, 10);
+            ClientSize = new Size(pictureBox1.Width + 100, pictureBox1.Height);           
+        }
+
+        public void setShape()          //shape of the detail
+        {
+            Random x = new Random(DateTime.Now.Millisecond);
+            shapeType = x.Next(7);
+            switch (shapeType)
+            {
+                case 0: shape = new int[,] { { 2, 3, 4, 5 }, { 8, 8, 8, 8 } }; break;
+                case 1: shape = new int[,] { { 2, 3, 2, 3 }, { 8, 8, 9, 9 } }; break;
+                case 2: shape = new int[,] { { 2, 3, 4, 4 }, { 8, 8, 8, 9 } }; break;
+                case 3: shape = new int[,] { { 2, 3, 4, 4 }, { 8, 8, 8, 7 } }; break;
+                case 4: shape = new int[,] { { 3, 3, 4, 4 }, { 7, 8, 8, 9 } }; break;
+                case 5: shape = new int[,] { { 3, 3, 4, 4 }, { 9, 8, 8, 7 } }; break;
+                case 6: shape = new int[,] { { 3, 4, 4, 4 }, { 8, 7, 8, 9 } }; break;
+            }
+        }
+
+        private void Game_KeyDown(object sender, KeyEventArgs e)            //Controls
+        {
+            int t = 0;
+            switch (e.KeyCode)
+            {
+                case Keys.A:                //Left
+                case Keys.Left:
+                    if (timer1.Enabled)
+                    {
+                        for (int i = 0; i < 4; i++)
+                            shape[1, i]--;
+                        if (findMistake())
+                            for (int i = 0; i < 4; i++)
+                                shape[1, i]++;
+                    }               
+                    break;
+
+                case Keys.D:                //Right
+                case Keys.Right:
+                    if (timer1.Enabled)
+                    {
+                        for (int i = 0; i < 4; i++)
+                            shape[1, i]++;
+                        if (findMistake())
+                            for (int i = 0; i < 4; i++)
+                                shape[1, i]--;
+                    }          
+                    break;
+                case Keys.W:             //Rotate
+                case Keys.Up:
+                    if (timer1.Enabled)
+                    {
+                        var shapeT = new int[2, 4];             //Duplicate
+                        Array.Copy(shape, shapeT, shape.Length);
+                        if (t == 1)
+                            t = 0;
+                        else
+                            t = 1;
+                        int maxx = 0, maxy = 0;
+                        for (int i = 0; i < 4; i++)             //Max coordinates
+                        {
+                            if (shape[0, i] > maxy)
+                                maxy = shape[0, i];
+                            if (shape[1, i] > maxx)
+                                maxx = shape[1, i];
+                        }
+                        for (int i = 0; i < 4; i++)
+                        {
+                            int temp = shape[0, i];
+                            shape[0, i] = maxy - (maxx - shape[1, i]);
+                            if (shapeType == 1)
+                                shape[1, i] = maxx + (maxy - temp) - 1;
+                            else
+                                shape[1, i] = maxx + (maxy - temp) - 1 - t;
+                        }
+                        if (findMistake())
+                            Array.Copy(shapeT, shape, shape.Length);
+                    }               
+                    break;
+                case Keys.S:                //Drop
+                case Keys.Down:
+                    for (int i = 0; i < 4; i++)
+                        shape[0, i]++;
+                    if (findMistake())
+                        for (int i = 0; i < 4; i++)
+                            shape[0, i]--;
+                    break;
+                case Keys.Space:            //Pause
+                    if (gameStarted)
+                    {
+                        if (timer1.Enabled)
+                        {
+                            timer1.Enabled = false;
+                            PauseLabel.Visible = true;
+                        }
+                        else
+                        {
+                            timer1.Enabled = true;
+                            PauseLabel.Visible = false;
+                        }                      
+                    }
+                    break;
+            }
+        }
+
+        private void timer1_Tick(object sender, EventArgs e)
+        {
+            if (field[8, 3] == 1)
+            {              
+                GameOver();
+            }            
+            for (int i = 0; i < 4; i++)
+                shape[0, i]++;
+            if (findMistake())
+            {
+                for (int i = 0; i < 4; i++)
+                    field[shape[1, i], --shape[0, i]]++;
+                setShape();
+            }
+            for (int i = height - 2; i > 2; i--)
+            {
+                var cross = (from t in Enumerable.Range(0, field.GetLength(0)).Select(j => field[j, i]).ToArray() where t == 1 select t).Count();
+                if (cross == width)
+                {
+                    for (int k = i; k > 1; k--)
+                        for (int l = 1; l < width - 1; l++)
+                            field[l, k] = field[l, k - 1];
+                    score += 100 * coef;
+                }                                                                                 
+            }
+            fillField();    
+        }
+
+        public void fillField()
+        {
+            g.Clear(Color.Black);
+            for (int i = 0; i < width; i++)
+                for (int j = 0; j < height; j++)
+                {
+                    if (field[i, j] == 1)
+                    { 
+                        g.FillRectangle(Brushes.Orange, i * k, j * k, k, k);
+                        g.DrawRectangle(Pens.Black, i * k, j * k, k, k);
+                    }
+                    if (border[i, j] == 1)
+                    {
+                        g.FillRectangle(Brushes.Blue, i * k, j * k, k, k);
+                        g.DrawRectangle(Pens.Black, i * k, j * k, k, k);
+                    }
+                }                   
+            for (int i = 0; i < 4; i++)
+            {
+                g.FillRectangle(Brushes.Red, shape[1, i] * k, shape[0, i] * k, k, k);
+                g.DrawRectangle(Pens.Black, shape[1, i] * k, shape[0, i] * k, k, k);
+            }
+            pictureBox1.Image = bitfield;
+            ScoreLabel.Text = score.ToString();
+        }
+
+        public void setMenu()
+        {
+            score = 0;
+            shape = new int[2, 4];
+            field = new int[width, height];
+            for (int i = 0; i < height; i++)
+            {
+                border[0, i] = 1;
+                border[width - 1, i] = 1;
+            }
+            for (int i = 0; i < width; i++)
+            {
+                border[i, height - 1] = 1;
+            }
+            fillField();
+            EasyButton.Location = new Point(pictureBox1.Width + 50, 20);
+            EasyButton.Size = new Size(150, 30);
+            EasyButton.Visible = true;
+            MediumButton.Location = new Point(pictureBox1.Width + 50, 70);
+            MediumButton.Size = new Size(150, 30);
+            MediumButton.Visible = true;
+            HardButton.Location = new Point(pictureBox1.Width + 50, 120);
+            HardButton.Size = new Size(150, 30);
+            HardButton.Visible = true;
+            InsaneButton.Location = new Point(pictureBox1.Width + 50, 170);
+            InsaneButton.Size = new Size(150, 30);
+            InsaneButton.Visible = true;
+            ResetButton.Location = new Point(pictureBox1.Width + 50, 120);
+            ResetButton.Size = new Size(150, 30);
+            ResetButton.Visible = false;
+            EndGameButton.Location = new Point(pictureBox1.Width + 50, 70);
+            EndGameButton.Size = new Size(150, 30);
+            EndGameButton.Visible = false;
+            label.Location = new Point(pictureBox1.Width + 50, 450);
+            label.Size = new Size(150, 30);
+            label.Visible = false;
+            ScoreLabel.Location = new Point(pictureBox1.Width + 50, 500);
+            ScoreLabel.Size = new Size(150, 30);
+            ScoreLabel.Visible = false;
+            GameOverLabel.Location = new Point(pictureBox1.Width + 50, 70);
+            GameOverLabel.Size = new Size(150, 30);
+            GameOverLabel.Visible = false;
+            PauseLabel.Location = new Point(pictureBox1.Width + 50, 120);
+            PauseLabel.Size = new Size(150, 30);
+            PauseLabel.Visible = false;
+            TextLabel.Location = new Point(pictureBox1.Width + 50, 200);
+            TextLabel.Size = new Size(150, 150);
+            TextLabel.Visible = false;
+        }
+
+        public void startGame()
+        {
+            gameStarted = true;
+            timer1.Enabled = true;
+            EasyButton.Visible = false;
+            MediumButton.Visible = false;
+            HardButton.Visible = false;
+            InsaneButton.Visible = false;
+            EndGameButton.Visible = true;
+            label.Visible = true;
+            ScoreLabel.Visible = true;
+            TextLabel.Visible = true;
+            for (int i = 0; i < height; i++)
+            {
+                field[0, i] = 1;
+                field[width - 1, i] = 1;
+            }
+            for (int i = 0; i < width; i++)
+            {
+                field[i, height - 1] = 1;
+            }          
+            setShape();
+        }
+
+        public void GameOver()
+        {
+            timer1.Enabled = false;
+            gameStarted = false;
+            stopMusic();
+            GameOverLabel.Visible = true;
+            EndGameButton.Visible = false;
+            ResetButton.Visible = true;
+            PauseLabel.Visible = false;
+            saveScore();
+        }
+
+        public bool findMistake()
+        {
+            for (int i = 0; i < 4; i++)
+                if (shape[1, i] >= width || shape[0, i] >= height || shape[1, i] <= 0 || shape[0, i] <= 0 || field[shape[1, i], shape[0, i]] == 1)
+                    return true;
+            return false;
+        }
+
+        private void EasyButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            timer1.Interval = 400;
+            difficulty = "Easy";
+            coef = 1;
+            startGame();   
+        }
+
+        private void MediumButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            timer1.Interval = 200;
+            difficulty = "Medium";
+            coef = 5;        
+            startGame();
+        }
+
+        private void HardButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            timer1.Interval = 100;
+            difficulty = "Hard";
+            coef = 25;
+            startGame();
+        }
+
+        private void InsaneButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            timer1.Interval = 50;
+            difficulty = "Insane";
+            coef = 125;
+            startGame();
+        }
+
+        private void ResetButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            playMusic();
+            setMenu();
+        }
+
+        private void EndGameButton_MouseClick(object sender, MouseEventArgs e)
+        {
+            GameOver();
+        }
+
+        public void playMusic()
+        {         
+            music.PlayLooping();
+        }
+
+        public void stopMusic()
+        {
+            music.Stop();
+        }
+
+        public void saveScore()
+        {
+            string text = "Tetris Score list:";
+            string path = Directory.GetCurrentDirectory() + @"\Tetris_Scorelist.txt";
+            if (!File.Exists(path))
+            {
+                using (StreamWriter streamWriter = File.CreateText(path))
+                {
+                    streamWriter.WriteLine(text);
+                }
+            }
+            StreamReader sr = new StreamReader(path);
+            text = sr.ReadLine();
+            for (int i = 0; i < 15; i++)
+            {
+                scoreList[i] = sr.ReadLine();
+                if (scoreList[i] != null)
+                {
+                    for (int j = 0; j < scoreList[i].Length; j++)
+                    {
+                        if ((scoreList[i])[j].Equals(' '))
+                        {
+                            int.TryParse(scoreList[i].Substring(j + 1), out recordList[i]);
+                        }
+                    }
+                }
+            }
+            sr.Close();
+            StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8);
+            for (int i = 0; i < recordList.Length; i++)
+            {
+                if (score > recordList[i])
+                {
+                    for (int j = i; j < recordList.Length - 1; j++)
+                    {
+                        recordList[j + 1] = recordList[j];
+                        scoreList[j + 1] = scoreList[j];
+                    }
+                    recordList[i] = score;
+                    scoreList[i] = (i + 1).ToString() + ". " + difficulty + "(x" + coef.ToString() + ")" + " " + recordList[i].ToString();
+                    break;
+                }                            
+            }
+            for (int i = 0; i < scoreList.Length; i++)
+            {
+                if (recordList[i] != 0)
+                {                 
+                    text += "\n" + scoreList[i];
+                } 
+            }
+            sw.WriteLine(text);
+            sw.Close();
+        }
+    }
+}
