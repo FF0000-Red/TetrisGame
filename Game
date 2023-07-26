@@ -19,15 +19,67 @@ namespace Game
         public int score = 0;
         public int coef;                        //Difficulty coefficient
         public string difficulty;               //Selected difficulty
-        public string[] scoreList =  new string[15];
         public int[,] shape = new int[2, 4];                //Detail
         public int[,] border = new int[width, height];          //Border size
         public int[,] field = new int[width, height];           //Gamefield size
-        public int[] recordList = new int[15];
         public bool gameStarted = false;
+        public Score[] records = new Score[15];
         public SoundPlayer music = new SoundPlayer(Properties.Resources.tetris);        //Soundtrack
         public Bitmap bitfield = new Bitmap(k * width, k * height);                     //Draws the gamefield
         public Graphics g;
+
+        public class Score
+        {
+            public int value;
+            public int place;
+            public int coef;
+            public string difficulty;
+
+            public Score()
+            {
+                this.value = 0;
+                this.place = 1;
+                this.coef = 1;
+            }
+
+            public string Text()
+            {
+                return String.Format("{0}. {1}(x{2}) {3}", this.place, this.difficulty, this.coef, this.value);
+            }
+
+            public void GetScore (string line)
+            {
+                if (line != null)
+                {
+                    int.TryParse(line.Substring(0, 1), out this.place);
+                    for (int j = 0; j < line.Length; j++)
+                    {
+                        int k = 0;
+                        if (line[j].Equals('.'))
+                        {
+                            while (!line[j + k + 1].Equals('('))
+                            {
+                                k++;
+                            }
+                            this.difficulty = line.Substring(j + 2, k - 1);
+                        }
+                        k = 0;
+                        if (line[j].Equals('x'))
+                        {
+                            while (!line[j + k].Equals(')'))
+                            {
+                                k++;
+                            }
+                            int.TryParse(line.Substring(j + 1, k - 1), out this.coef);
+                        }
+                        if (line[j].Equals(' '))
+                        {
+                            int.TryParse(line.Substring(j + 1), out this.value);
+                        }
+                    }
+                }
+            }
+        }
 
         public Game()
         {
@@ -344,6 +396,8 @@ namespace Game
 
         public void saveScore()
         {
+            for (int i = 0; i < records.Length; i++)
+                records[i] = new Score();
             string text = "Tetris Score list:";
             string path = Directory.GetCurrentDirectory() + @"\Tetris_Scorelist.txt";
             if (!File.Exists(path))
@@ -357,40 +411,40 @@ namespace Game
             text = sr.ReadLine();
             for (int i = 0; i < 15; i++)
             {
-                scoreList[i] = sr.ReadLine();
-                if (scoreList[i] != null)
-                {
-                    for (int j = 0; j < scoreList[i].Length; j++)
-                    {
-                        if ((scoreList[i])[j].Equals(' '))
-                        {
-                            int.TryParse(scoreList[i].Substring(j + 1), out recordList[i]);
-                        }
-                    }
-                }
+                string line = sr.ReadLine();
+                records[i].GetScore(line);
             }
             sr.Close();
             StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8);
-            for (int i = 0; i < recordList.Length; i++)
+            for (int i = 0; i < records.Length; i++)
             {
-                if (score > recordList[i])
+                if ((score > records[i].value) || (records[i] == null))
                 {
-                    for (int j = i; j < recordList.Length - 1; j++)
+                    Score[] temp = new Score[records.Length - i];
+                    for (int j = 0; j < temp.Length; j++)
+                        temp[j] = new Score();
+                    temp[0].value = score;
+                    temp[0].coef = coef;
+                    temp[0].difficulty = difficulty;
+                    temp[0].place = i + 1;
+                    for (int j = 1; j < temp.Length; j++)
                     {
-                        recordList[j + 1] = recordList[j];
-                        scoreList[j + 1] = scoreList[j];
+                        temp[j] = records[i + j - 1];
+                        temp[j].place++;
                     }
-                    recordList[i] = score;
-                    scoreList[i] = (i + 1).ToString() + ". " + difficulty + "(x" + coef.ToString() + ")" + " " + recordList[i].ToString();
+                    for (int j = 0; j < temp.Length; j++)
+                    {
+                        records[i + j] = temp[j];
+                    }
                     break;
-                }                            
+                }
             }
-            for (int i = 0; i < scoreList.Length; i++)
+            for (int i = 0; i < records.Length; i++)
             {
-                if (recordList[i] != 0)
-                {                 
-                    text += "\n" + scoreList[i];
-                } 
+                if (records[i].value != 0)
+                {
+                    text += "\n" + records[i].Text();
+                }
             }
             sw.WriteLine(text);
             sw.Close();
